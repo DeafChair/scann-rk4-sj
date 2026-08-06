@@ -1,8 +1,14 @@
 # scann-rk4-sj
 
-RK4 小行星轨道传播器：**太阳引力 + 木星/土星点质量摄动 + 光行时迭代**，
-输出 topocentric astrometric RA/Dec。从 SCANN 的 MPCORB 核验器中原样提取，
-物理逻辑与实战版本一致，不依赖 SCANN 本体。
+小行星轨道传播与全库核验工具：**太阳引力 + 木星/土星点质量摄动 +
+光行时迭代**，输出 topocentric astrometric RA/Dec，并支持用
+MPCORB.DAT 全库对目标做命中判定。
+
+## 功能
+
+- 单颗预测：轨道根数 → 观测时刻的 RA/Dec/星等；
+- 全库核验：用户提供 MPCORB.DAT + 目标坐标/时间 → HIT / MISS；
+- MPCORB 80 列解析、坐标解析、命令行工具。
 
 ## 物理模型
 
@@ -19,6 +25,12 @@ RK4 小行星轨道传播器：**太阳引力 + 木星/土星点质量摄动 + �
 注意：这是 topocentric **astrometric** 方向，未加光行差/章动，不是完整视位置；
 精度适合小行星核验（角分到角秒量级），不适合做毫角秒级历表。
 
+## 数据说明
+
+**本工具不下载、不附带 MPCORB 数据**。请自行到 Minor Planet Center 下载
+全量轨道根数文件 [MPCORB.DAT](https://www.minorplanetcenter.net/iau/MPCORB.html)
+（约 200 MB）。行星/地球位置由 astropy builtin 星历计算，同样无需额外下载。
+
 ## 安装
 
 ```bash
@@ -29,11 +41,7 @@ pip install -e .
 
 ## 命令行
 
-### 全库核验（推荐，需要 MPCORB.DAT）
-
-**本工具不下载、不附带 MPCORB 数据**。请自行到 Minor Planet Center 下载
-全量轨道根数文件 [MPCORB.DAT](https://www.minorplanetcenter.net/iau/MPCORB.html)
-（约 200 MB），把路径传给 `--mpcorb` 即可：
+### 全库核验（推荐）
 
 ```bash
 python -m scann_rk4_sj.cli verify \
@@ -43,8 +51,8 @@ python -m scann_rk4_sj.cli verify \
   --radius 30
 ```
 
-工具会自动解析并缓存（首次解析 1.2M 行需要一点时间，之后秒级加载），
-内部走 SCANN 同款流程：两体粗筛 → RK4+木星/土星精细 → 光行时 → 命中判定。
+流程：解析全库 → 两体粗筛（shortlist ≤400）→ RK4+木星/土星精细（≤300）
+→ 光行时 → 命中判定。首次解析 1.2M 行需要一点时间，之后自动缓存、秒级加载。
 输出 HIT 的小行星编号/名字、预测位置和角距离。
 
 ### 单颗预测
@@ -96,8 +104,18 @@ res = AsteroidPropagator.predict_single(
 print(res["ra_deg"], res["dec_deg"], res["mag"])
 ```
 
-批量预测用 `predict_refined`（所有参数支持数组），返回
-`(ra, dec, mag, r_helio, delta)`。
+全库核验：
+
+```python
+from scann_rk4_sj import MpcorbVerifier
+
+verifier = MpcorbVerifier("MPCORB.DAT")
+results = verifier.verify_targets([
+    {"ra_deg": 46.87366, "dec_deg": 22.63581,
+     "time": "2023-10-15T10:07:16.52"},
+], search_radius_arcsec=30)
+print(results[0]["local_asteroid_status"])  # match / clear
+```
 
 MPCORB 行解析：
 
@@ -120,9 +138,11 @@ python -m unittest discover -s tests -v
 - 前向/后向往返传播自洽；
 - 木星/土星摄动确实改变轨道（与纯二体对比）；
 - 光行时迭代收敛；
-- 与 JPL Horizons 对比（Ceres，网络可用时自动执行，容差 0.05°）。
+- 与 JPL Horizons 对比（Ceres，网络可用时自动执行）；
+- 全库核验的 HIT / clear 判定（合成小样本 MPCORB）。
 
-## 来源与致谢
+## 致谢
 
-从 SCANN（Supernova Candidate Analysis via Neural Network）的
-`MPCORBLocalVerifier` 提取，保持原实现数值逻辑不变。
+感谢 **Minor Planet Center（MPC）** 提供并维护 **MPCORB.DAT** 全量小行星轨道
+数据库；感谢 **JPL Horizons** 提供独立星历用于验证；感谢 astropy 项目提供
+天文计算基础设施。
