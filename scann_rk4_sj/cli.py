@@ -17,6 +17,7 @@ import sys
 from .propagator import AsteroidPropagator
 from .mpcorb_parse import parse_mpcorb_line
 from .coordinates import parse_ra_dec, separation_arcsec
+from .mpcorb_catalog import MpcorbVerifier
 
 
 def _fmt_ra(ra_deg: float) -> str:
@@ -71,6 +72,16 @@ def _build_parser() -> argparse.ArgumentParser:
     m.add_argument("--step", type=float, default=0.5)
     m.add_argument("--max-iter", type=int, default=4)
     m.add_argument("--json", action="store_true")
+
+    v = sub.add_parser("verify", help="verify a target against a full MPCORB.DAT")
+    v.add_argument("--mpcorb", required=True, help="path to MPCORB.DAT")
+    v.add_argument("--target", required=True, help='target RA/Dec, e.g. "03 07 29.679 +22 38 08.90"')
+    v.add_argument("--time", required=True, help="observation time, ISO (UTC)")
+    v.add_argument("--radius", type=float, default=30.0, help="search radius in arcsec")
+    v.add_argument("--mag-limit", type=float, default=18.5, help="catalog magnitude limit")
+    v.add_argument("--site", default=None, help='observer "lon,lat,alt_m"')
+    v.add_argument("--cache-dir", default=None, help="cache directory (default: next to MPCORB)")
+    v.add_argument("--json", action="store_true")
     return parser
 
 
@@ -109,8 +120,48 @@ def _elements_from_args(args):
 
 def main(argv=None) -> int:
     args = _build_parser().parse_args(argv)
-    if args.command not in ("predict", "match"):
+    if args.command not in ("predict", "match", "verify"):
         return 2
+
+    if args.command == "verify":
+        try:
+            target_ra, target_dec = parse_ra_dec(args.target)
+        except ValueError as exc:
+            print(str(exc), file=sys.stderr)
+            return 2
+        site = _site_tuple(args.site)
+        target = {
+            "ra_deg": target_ra,
+            "dec_deg": target_dec,
+            "time": args.time,
+            "label": "target",
+        }
+        if site:
+            target["site"] = site
+        try:
+            verifier = MpcorbVerifier(args.mpcorb, cache_dir=args.cache_dir)
+            results = verifier.verify_targets(
+                [target],
+                search_radius_arcsec=args.radius,
+                mag_limit=args.mag_limit,
+            )
+        except Exception as exc:
+            print(f"verify failed: {exc}", file=sys.stderr)
+            return 1
+        item = results[0]
+        if args.json:
+            print(json.dumps(item, ensure_ascii=False, indent=2, default=str))
+        else:
+            print(f"target: RA {_fmt_ra(target_ra)}  Dec {_fmt_dec(target_dec)}")
+            print(f"status: {item.get('local_asteroid_status')}  "
+                  f"radius {args.radius:g} arcsec")
+            if item.get("local_asteroid_matches"):
+                for mt in item["local_asteroid_matches"]:
+                    print(f"  HIT  {mt['label']}  sep {mt['sep_arcsec']:.1f}''  "
+                          f"mode {mt['prediction_mode']}")
+            else:
+                print("  no asteroid match")
+        return 0
 
     try:
         site = _site_tuple(args.site)

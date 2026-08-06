@@ -69,7 +69,7 @@ class AsteroidPropagator:
         """Observation time as ordinal-day float (same convention as epoch_ord)."""
         if not isinstance(obs_t, Time):
             obs_t = Time(obs_t, scale="utc")
-        return float(np.asarray(obs_t.tt.jd, dtype=np.float64) - 1721424.5)
+        return float(np.asarray(obs_t.tt.jd, dtype=np.float64).item() - 1721424.5)
 
     @staticmethod
     def as_time(value):

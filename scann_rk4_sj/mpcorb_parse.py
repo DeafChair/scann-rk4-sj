@@ -57,6 +57,59 @@ def _safe_float(s: str, default: float = np.nan) -> float:
         return default
 
 
+def encode_md(value: int) -> str:
+    """Encode a month/day (1-31) into the packed MPCORB character."""
+    if 1 <= value <= 9:
+        return str(value)
+    table = {10 + i: ch for i, ch in enumerate(
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZ"[:22]
+    )}
+    ch = table.get(value)
+    if ch is None:
+        raise ValueError(f"cannot pack day/month value {value}")
+    return ch
+
+
+def format_mpcorb_line(
+    label: str,
+    H: float,
+    G: float,
+    epoch_iso: str,
+    M0: float,
+    w: float,
+    Omega: float,
+    inc: float,
+    e: float,
+    n: float,
+    a: float,
+) -> str:
+    """Format orbital elements as one MPCORB.DAT 80-column record.
+
+    Mainly useful for building small test catalogs; column layout follows
+    the MPC standard (see parse_mpcorb_line).
+    """
+    date = _dt.date.fromisoformat(epoch_iso)
+    year_code = "K" if 2000 <= date.year < 2100 else "J" if 1900 <= date.year < 2000 else "I"
+    epoch_packed = (
+        f"{year_code}{date.year % 100:02d}"
+        f"{encode_md(date.month)}{encode_md(date.day)}"
+    )
+    chars = [" "] * 200
+    chars[0:7] = list(str(label)[:7].ljust(7))
+    chars[8:13] = list(f"{H:5.2f}")
+    chars[14:19] = list(f"{G:5.2f}")
+    chars[20:25] = list(epoch_packed)
+    chars[26:35] = list(f"{M0:9.5f}")
+    chars[37:46] = list(f"{w:9.5f}")
+    chars[48:57] = list(f"{Omega:9.5f}")
+    chars[59:68] = list(f"{inc:9.5f}")
+    chars[70:79] = list(f"{e:9.5f}")
+    chars[80:91] = list(f"{n:11.7f}")
+    chars[92:103] = list(f"{a:11.7f}")
+    chars[166:194] = list(str(label)[:28].ljust(28))
+    return "".join(chars)
+
+
 def parse_mpcorb_line(line: str) -> dict[str, Any] | None:
     """Parse one MPCORB.DAT line into orbital elements.
 

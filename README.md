@@ -29,6 +29,26 @@ pip install -e .
 
 ## 命令行
 
+### 全库核验（推荐，需要 MPCORB.DAT）
+
+**本工具不下载、不附带 MPCORB 数据**。请自行到 Minor Planet Center 下载
+全量轨道根数文件 [MPCORB.DAT](https://www.minorplanetcenter.net/iau/MPCORB.html)
+（约 200 MB），把路径传给 `--mpcorb` 即可：
+
+```bash
+python -m scann_rk4_sj.cli verify \
+  --mpcorb MPCORB.DAT \
+  --target "03 07 29.679 +22 38 08.90" \
+  --time 2023-10-15T10:07:16.52 \
+  --radius 30
+```
+
+工具会自动解析并缓存（首次解析 1.2M 行需要一点时间，之后秒级加载），
+内部走 SCANN 同款流程：两体粗筛 → RK4+木星/土星精细 → 光行时 → 命中判定。
+输出 HIT 的小行星编号/名字、预测位置和角距离。
+
+### 单颗预测
+
 用轨道根数：
 
 ```bash
