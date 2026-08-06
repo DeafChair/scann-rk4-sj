@@ -46,6 +46,21 @@ python -m scann_rk4_sj.cli predict --mpcorb-line "00001 ..." --time 2026-08-06T1
 
 不传 `--site` 时默认用星明天文台 N89（东经 87.179°, 北纬 43.471°, 海拔 2066 m）。
 
+### 命中判定（match）
+
+拿 MPC 80 列 + 目标坐标，直接判断是否命中（默认 30″ 半径）：
+
+```bash
+python -m scann_rk4_sj.cli match \
+  --mpcorb-line "00001 ..." \
+  --time 2026-08-06T18:00:00 \
+  --target "13:55:22.95,-06:11:30.2" \
+  --radius 30
+```
+
+输出预测 RA/Dec、目标 RA/Dec、角距离和 HIT / MISS。目标坐标支持十进制度
+（`208.845615,-6.191733`）或时分秒（`13:55:22.95,-06:11:30.2`）。
+
 ## Python API
 
 ```python

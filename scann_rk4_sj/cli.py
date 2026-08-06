@@ -16,6 +16,7 @@ import sys
 
 from .propagator import AsteroidPropagator
 from .mpcorb_parse import parse_mpcorb_line
+from .coordinates import parse_ra_dec, separation_arcsec
 
 
 def _fmt_ra(ra_deg: float) -> str:
@@ -52,46 +53,70 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--step", type=float, default=0.5, help="RK4 step in days")
     p.add_argument("--max-iter", type=int, default=4, help="light-time iterations")
     p.add_argument("--json", action="store_true", help="print JSON")
+
+    m = sub.add_parser("match", help="predict and judge hit/miss against a target")
+    m.add_argument("--elements", default=None,
+                   help='comma list "a,e,inc,Omega,w,M" in degrees/AU')
+    m.add_argument("--mpcorb-line", default=None, help="raw MPCORB.DAT line")
+    m.add_argument("--epoch", default=None, help="epoch of elements, ISO date")
+    m.add_argument("--time", required=True, help="observation time, ISO")
+    m.add_argument("--target", required=True,
+                   help='target RA/Dec, e.g. "208.845615,-6.191733" or '
+                        '"13:55:22.95,-06:11:30.2"')
+    m.add_argument("--radius", type=float, default=30.0,
+                   help="search radius in arcseconds (default 30)")
+    m.add_argument("--H", type=float, default=15.0)
+    m.add_argument("--G", type=float, default=0.15)
+    m.add_argument("--site", default=None, help='observer "lon,lat,alt_m"')
+    m.add_argument("--step", type=float, default=0.5)
+    m.add_argument("--max-iter", type=int, default=4)
+    m.add_argument("--json", action="store_true")
     return parser
 
 
-def main(argv=None) -> int:
-    args = _build_parser().parse_args(argv)
-    if args.command != "predict":
-        return 2
+def _site_tuple(site: str | None):
+    if not site:
+        return None
+    parts = [x.strip() for x in site.split(",")]
+    if len(parts) != 3:
+        raise ValueError("--site needs lon,lat,alt_m")
+    return tuple(float(x) for x in parts)
 
-    site = None
-    if args.site:
-        parts = [x.strip() for x in args.site.split(",")]
-        if len(parts) != 3:
-            print("--site needs lon,lat,alt_m", file=sys.stderr)
-            return 2
-        site = tuple(float(x) for x in parts)
 
+def _elements_from_args(args):
     if args.mpcorb_line:
         parsed = parse_mpcorb_line(args.mpcorb_line)
         if parsed is None:
-            print("cannot parse MPCORB line", file=sys.stderr)
-            return 2
-        elements = {
+            raise ValueError("cannot parse MPCORB line")
+        return {
             "a": parsed["a"], "e": parsed["e"], "inc_deg": parsed["inc"],
             "Omega_deg": parsed["Omega"], "w_deg": parsed["w"], "M_deg": parsed["M0"],
             "epoch_iso": parsed["epoch_iso"], "H": parsed["H"], "G": parsed["G"],
             "label": parsed["label"],
         }
-    elif args.elements and args.epoch:
+    if args.elements and args.epoch:
         vals = [float(x.strip()) for x in args.elements.split(",")]
         if len(vals) != 6:
-            print("--elements needs exactly 6 values", file=sys.stderr)
-            return 2
-        elements = {
+            raise ValueError("--elements needs exactly 6 values")
+        return {
             "a": vals[0], "e": vals[1], "inc_deg": vals[2],
             "Omega_deg": vals[3], "w_deg": vals[4], "M_deg": vals[5],
             "epoch_iso": args.epoch, "H": args.H, "G": args.G,
             "label": "custom",
         }
-    else:
-        print("provide --elements+--epoch or --mpcorb-line", file=sys.stderr)
+    raise ValueError("provide --elements+--epoch or --mpcorb-line")
+
+
+def main(argv=None) -> int:
+    args = _build_parser().parse_args(argv)
+    if args.command not in ("predict", "match"):
+        return 2
+
+    try:
+        site = _site_tuple(args.site)
+        elements = _elements_from_args(args)
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
         return 2
 
     result = AsteroidPropagator.predict_single(
@@ -112,6 +137,35 @@ def main(argv=None) -> int:
         max_iter=args.max_iter,
     )
     result["label"] = elements["label"]
+
+    if args.command == "match":
+        try:
+            target_ra, target_dec = parse_ra_dec(args.target)
+        except ValueError as exc:
+            print(str(exc), file=sys.stderr)
+            return 2
+        sep = separation_arcsec(
+            result["ra_deg"], result["dec_deg"], target_ra, target_dec
+        )
+        verdict = "HIT" if sep <= args.radius else "MISS"
+        if args.json:
+            print(json.dumps({
+                "label": elements["label"],
+                "predicted_ra_deg": result["ra_deg"],
+                "predicted_dec_deg": result["dec_deg"],
+                "target_ra_deg": target_ra,
+                "target_dec_deg": target_dec,
+                "separation_arcsec": sep,
+                "radius_arcsec": args.radius,
+                "verdict": verdict,
+            }, ensure_ascii=False, indent=2))
+        else:
+            print(f"{elements['label']}")
+            print(f"  predicted: RA {_fmt_ra(result['ra_deg'])}  "
+                  f"Dec {_fmt_dec(result['dec_deg'])}")
+            print(f"  target:    RA {_fmt_ra(target_ra)}  Dec {_fmt_dec(target_dec)}")
+            print(f"  separation {sep:.1f} arcsec (radius {args.radius:g}) -> {verdict}")
+        return 0
 
     if args.json:
         print(json.dumps(result, ensure_ascii=False, indent=2))
